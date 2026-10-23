@@ -89,6 +89,15 @@ class MainActivity : ComponentActivity() {
         isSamsung = deviceManager.isSamsungDevice()
         isAuracastSupported = deviceManager.isLeAudioBroadcastSupported()
 
+        // Real-time listener: updates UI as soon as Bluetooth proxies connect or devices change
+        deviceManager.setListener(object : BluetoothDeviceManager.DeviceListListener {
+            override fun onDevicesUpdated(devices: List<ConnectedAudioDevice>) {
+                runOnUiThread {
+                    connectedDevices = devices
+                }
+            }
+        })
+
         auracastManager.initialize()
         auracastManager.setCallback(object : AuracastManager.BroadcastCallback {
             override fun onBroadcastStarted(broadcastId: Int) {
@@ -163,7 +172,7 @@ class MainActivity : ComponentActivity() {
     private fun startSystemCapture() {
         val selected = connectedDevices.filter { it.isSelected }
         if (selected.size < 2) {
-            Toast.makeText(this, "Please check 2 connected earphones below", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Tip: Check both earbuds in the checklist below", Toast.LENGTH_LONG).show()
         }
         applyRouting()
         val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
@@ -197,7 +206,7 @@ class MainActivity : ComponentActivity() {
                         color = Color(0xFFF8FAFC)
                     )
                     Text(
-                        text = "Play same audio to 2 pairs of earbuds from 1 phone",
+                        text = "1 Phone • 2 Earbuds Dual Output Engine",
                         fontSize = 13.sp,
                         color = Color(0xFF94A3B8)
                     )
@@ -226,7 +235,7 @@ class MainActivity : ComponentActivity() {
                                     color = Color(0xFFA5B4FC)
                                 )
                                 Text(
-                                    "Your phone has Samsung Dual Audio built into the hardware. You can open Samsung's Media Output panel directly.",
+                                    "Your Galaxy phone supports Dual Audio natively. Tap below to open Samsung's Media Output panel and check both earbuds.",
                                     fontSize = 12.sp,
                                     color = Color(0xFFE0E7FF),
                                     modifier = Modifier.padding(vertical = 4.dp)
@@ -261,7 +270,7 @@ class MainActivity : ComponentActivity() {
                                 if (isAuracastSupported)
                                     "Your phone supports Auracast! Broadcast audio to unlimited nearby LE Audio earbuds."
                                 else
-                                    "Auracast requires Android 13+ and a phone with Bluetooth 5.2 LE Audio chipset.",
+                                    "Auracast broadcast is ready for phones with Android 13+ and Bluetooth 5.2+ LE Audio.",
                                 fontSize = 12.sp,
                                 color = Color(0xFFD1FAE5),
                                 modifier = Modifier.padding(vertical = 6.dp)
@@ -290,13 +299,13 @@ class MainActivity : ComponentActivity() {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            "Select Earphones to Play (${connectedDevices.count { it.isSelected }}/2)",
+                            "Connected Earphones (${connectedDevices.count { it.isSelected }}/2 Selected)",
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFFF1F5F9)
                         )
                         Spacer(modifier = Modifier.weight(1f))
                         TextButton(onClick = { refreshDevices() }) {
-                            Text("Refresh", color = Color(0xFF10B981))
+                            Text("Refresh List", color = Color(0xFF10B981))
                         }
                     }
                 }
@@ -313,7 +322,7 @@ class MainActivity : ComponentActivity() {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "No Bluetooth audio devices connected.\nPair and connect your 2 earbuds in Bluetooth settings first.",
+                                "Querying Bluetooth audio devices...\nEnsure both pairs of earbuds are paired and connected in Android Bluetooth settings.",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 13.sp,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -332,7 +341,7 @@ class MainActivity : ComponentActivity() {
                                 .clickable {
                                     val currentSelected = connectedDevices.count { it.isSelected }
                                     if (!dev.isSelected && currentSelected >= 2) {
-                                        Toast.makeText(this@MainActivity, "Maximum 2 earbuds can be selected at once", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(this@MainActivity, "Select up to 2 earbuds at once", Toast.LENGTH_SHORT).show()
                                     } else {
                                         dev.isSelected = !dev.isSelected
                                         connectedDevices = ArrayList(connectedDevices)
@@ -359,13 +368,40 @@ class MainActivity : ComponentActivity() {
                                     colors = CheckboxDefaults.colors(checkedColor = Color(0xFF10B981))
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(dev.name, fontWeight = FontWeight.Bold, color = Color(0xFFF8FAFC))
-                                    Text(
-                                        "ID: ${dev.id} • ${if (dev.type == 8) "Bluetooth A2DP" else "LE Audio"}",
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF94A3B8)
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                                        Text(
+                                            text = dev.profileType,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF94A3B8)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (dev.isSystemActive) "• ACTIVE SINK" else "• CONNECTED STANDBY",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (dev.isSystemActive) Color(0xFF10B981) else Color(0xFFF59E0B)
+                                        )
+                                    }
+                                }
+
+                                // Quick switch button if it's standby
+                                if (!dev.isSystemActive && dev.bluetoothDevice != null) {
+                                    TextButton(
+                                        onClick = {
+                                            val ok = deviceManager.requestSetActiveDevice(dev.bluetoothDevice)
+                                            if (ok) {
+                                                Toast.makeText(this@MainActivity, "Switched active output to ${dev.name}", Toast.LENGTH_SHORT).show()
+                                                refreshDevices()
+                                            } else {
+                                                Toast.makeText(this@MainActivity, "Switching device...", Toast.LENGTH_SHORT).show()
+                                                refreshDevices()
+                                            }
+                                        }
+                                    ) {
+                                        Text("Activate", fontSize = 11.sp, color = Color(0xFF06B6D4))
+                                    }
                                 }
                             }
                         }
@@ -381,7 +417,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("🎚️ Dual Volume & Sync Calibration", fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
-                            
+
                             Spacer(modifier = Modifier.height(12.dp))
                             Text("Earbuds 1 Volume: ${(vol1 * 100).toInt()}%", fontSize = 12.sp, color = Color(0xFF94A3B8))
                             Slider(
@@ -409,7 +445,7 @@ class MainActivity : ComponentActivity() {
                                 Text("Latency Offset: ${latencyMs.toInt()} ms", fontSize = 12.sp, color = Color(0xFF94A3B8))
                                 Spacer(modifier = Modifier.weight(1f))
                                 TextButton(onClick = { dualAudioEngine.playSyncTestTone() }) {
-                                    Text("Test Sync Click", color = Color(0xFF10B981), fontSize = 12.sp)
+                                    Text("Play Test Beep", color = Color(0xFF10B981), fontSize = 12.sp)
                                 }
                             }
                             Slider(
@@ -457,9 +493,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Text("💡 Developer Options Tip (Non-Samsung Phones)", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE2E8F0))
+                            Text("💡 Developer Options Setting", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE2E8F0))
                             Text(
-                                "If your phone disconnects Earbuds 1 when connecting Earbuds 2, go to Developer Options > 'Maximum connected Bluetooth audio devices' and set it to 2 or 5.",
+                                "If the second earbud shows as 'Connected Standby' but no sound plays, open Developer Options > 'Maximum connected Bluetooth audio devices' and change it from 1 to 2 or 5.",
                                 fontSize = 11.sp,
                                 color = Color(0xFF94A3B8),
                                 modifier = Modifier.padding(vertical = 4.dp)
@@ -480,6 +516,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        deviceManager.unregister()
         dualAudioEngine.release()
         super.onDestroy()
     }
