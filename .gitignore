@@ -17,6 +17,13 @@ local.properties
 *.apk
 *.aab
 
+# Keystores & Signing Secrets (CRITICAL: NEVER COMMIT)
+*.keystore
+*.jks
+keystore.properties
+*-credentials.txt
+*-signing/
+
 # Logs and environment
 *.log
 .env
