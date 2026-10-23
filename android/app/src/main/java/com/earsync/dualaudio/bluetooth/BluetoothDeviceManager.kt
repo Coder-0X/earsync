@@ -135,8 +135,8 @@ class BluetoothDeviceManager(private val context: Context) {
 
     /**
      * Enumerates ALL connected Bluetooth audio devices (both active AND connected standby).
-     * Unlike AudioManager.getDevices() which only returns the active sink, this queries
-     * the Bluetooth A2DP & LE Audio stack directly!
+     * Fixes: Strict matching so only the true active device is marked Active Sink,
+     * and standby devices are accurately identified.
      */
     @SuppressLint("MissingPermission")
     fun getConnectedAudioDevices(): List<ConnectedAudioDevice> {
@@ -149,16 +149,34 @@ class BluetoothDeviceManager(private val context: Context) {
 
         for (dev in outputDevices) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                dev.address?.let { activeAudioMap[it] = dev }
+                dev.address?.let { if (it.isNotEmpty()) activeAudioMap[it] = dev }
             }
         }
 
-        // 2. Query A2DP connected devices (Returns ALL connected Bluetooth earphones!)
+        // 2. Query A2DP connected devices (boAt, Redmi, etc.)
         try {
             a2dpProfile?.connectedDevices?.forEach { btDev ->
                 val addr = btDev.address ?: ""
                 val name = btDev.name ?: "Bluetooth Earbuds"
-                val isActive = activeAudioMap.containsKey(addr) || (outputDevices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP })
+
+                // Strict matching: only active if address or name matches AudioManager active output
+                val matchingAudioDev = if (addr.isNotEmpty() && activeAudioMap.containsKey(addr)) {
+                    activeAudioMap[addr]
+                } else {
+                    outputDevices.firstOrNull { outDev ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            outDev.productName?.toString().equals(name, ignoreCase = true)
+                        } else false
+                    }
+                }
+
+                // If only 1 A2DP device is connected, it is active. If 2 are connected, only the matching one is active.
+                val isActive = if (a2dpProfile?.connectedDevices?.size == 1) {
+                    true
+                } else {
+                    matchingAudioDev != null
+                }
+
                 seenAddresses.add(addr)
 
                 result.add(
@@ -168,7 +186,7 @@ class BluetoothDeviceManager(private val context: Context) {
                         address = addr,
                         profileType = "Bluetooth A2DP",
                         isSystemActive = isActive,
-                        audioDeviceInfo = activeAudioMap[addr] ?: outputDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP },
+                        audioDeviceInfo = matchingAudioDev,
                         bluetoothDevice = btDev
                     )
                 )
@@ -187,14 +205,15 @@ class BluetoothDeviceManager(private val context: Context) {
                     val addr = btDev.address ?: ""
                     if (!seenAddresses.contains(addr)) {
                         seenAddresses.add(addr)
+                        val matchingDev = activeAudioMap[addr]
                         result.add(
                             ConnectedAudioDevice(
                                 id = btDev.hashCode(),
                                 name = btDev.name ?: "LE Audio Earbuds",
                                 address = addr,
                                 profileType = "LE Audio",
-                                isSystemActive = activeAudioMap.containsKey(addr),
-                                audioDeviceInfo = activeAudioMap[addr],
+                                isSystemActive = matchingDev != null,
+                                audioDeviceInfo = matchingDev,
                                 bluetoothDevice = btDev
                             )
                         )
@@ -228,7 +247,7 @@ class BluetoothDeviceManager(private val context: Context) {
             Log.e(TAG, "Error querying Headset devices", e)
         }
 
-        // 5. Fallback if proxies haven't finished binding yet: read AudioManager outputs
+        // 5. Fallback if proxies haven't finished binding yet
         if (result.isEmpty()) {
             for (device in outputDevices) {
                 when (device.type) {
@@ -275,7 +294,8 @@ class BluetoothDeviceManager(private val context: Context) {
                 val method = a2dp.javaClass.getMethod("setActiveDevice", BluetoothDevice::class.java)
                 val success = method.invoke(a2dp, btDevice) as? Boolean
                 if (success == true) {
-                    Log.i(TAG, "Successfully invoked setActiveDevice on A2DP for ${btDevice.name}")
+                    Log.i(TAG, "Successfully invoked setActiveDevice on A2DP for ${btDevName(btDevice)}")
+                    notifyDevicesChanged()
                     return true
                 }
             }
@@ -285,7 +305,8 @@ class BluetoothDeviceManager(private val context: Context) {
                 val method = adapter.javaClass.getMethod("setActiveDevice", BluetoothDevice::class.java, Int::class.javaPrimitiveType)
                 val success = method.invoke(adapter, btDevice, 0) as? Boolean
                 if (success == true) {
-                    Log.i(TAG, "Successfully invoked setActiveDevice on adapter for ${btDevice.name}")
+                    Log.i(TAG, "Successfully invoked setActiveDevice on adapter for ${btDevName(btDevice)}")
+                    notifyDevicesChanged()
                     return true
                 }
             }
@@ -295,16 +316,15 @@ class BluetoothDeviceManager(private val context: Context) {
         return false
     }
 
-    /**
-     * Check if the device is a Samsung phone running One UI.
-     */
+    @SuppressLint("MissingPermission")
+    private fun btDevName(device: BluetoothDevice): String {
+        return try { device.name ?: device.address } catch (e: Exception) { device.address }
+    }
+
     fun isSamsungDevice(): Boolean {
         return Build.MANUFACTURER.equals("samsung", ignoreCase = true)
     }
 
-    /**
-     * Attempts to open Samsung's native One UI Media Output / Dual Audio settings panel.
-     */
     fun openSamsungMediaOutputPanel(): Boolean {
         if (!isSamsungDevice()) return false
         val intents = listOf(
@@ -327,9 +347,6 @@ class BluetoothDeviceManager(private val context: Context) {
         return false
     }
 
-    /**
-     * Check if Android 13+ LE Audio (Auracast) broadcasting is supported on this phone.
-     */
     fun isLeAudioBroadcastSupported(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
         return bluetoothAdapter?.isLeAudioBroadcastSourceSupported == 10 ||

@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -153,28 +154,24 @@ class MainActivity : ComponentActivity() {
         connectedDevices = deviceManager.getConnectedAudioDevices()
     }
 
-    private fun applyRouting() {
-        val selected = connectedDevices.filter { it.isSelected }
-        if (selected.isEmpty()) {
-            Toast.makeText(this, "Select at least 1 or 2 earbuds from the list", Toast.LENGTH_SHORT).show()
-            return
-        }
+    private fun applyRouting(selectedList: List<ConnectedAudioDevice>) {
+        if (selectedList.isEmpty()) return
 
-        val dev1 = selected.getOrNull(0)?.audioDeviceInfo
-        val dev2 = selected.getOrNull(1)?.audioDeviceInfo
+        val dev1 = selectedList.getOrNull(0)?.audioDeviceInfo
+        val dev2 = selectedList.getOrNull(1)?.audioDeviceInfo
 
         val success = dualAudioEngine.setupDualRouting(dev1, dev2)
         if (success) {
-            Toast.makeText(this, "Audio routing ready for ${selected.size} devices!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Dual routing ready for ${selectedList.size} earphones!", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun startSystemCapture() {
-        val selected = connectedDevices.filter { it.isSelected }
-        if (selected.size < 2) {
-            Toast.makeText(this, "Tip: Check both earbuds in the checklist below", Toast.LENGTH_LONG).show()
+    private fun startSystemCapture(selectedList: List<ConnectedAudioDevice>) {
+        if (selectedList.isEmpty()) {
+            Toast.makeText(this, "Please check your earphones in the list below first", Toast.LENGTH_SHORT).show()
+            return
         }
-        applyRouting()
+        applyRouting(selectedList)
         val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
         mediaProjectionLauncher.launch(captureIntent)
     }
@@ -194,6 +191,18 @@ class MainActivity : ComponentActivity() {
         var vol1 by remember { mutableStateOf(1.0f) }
         var vol2 by remember { mutableStateOf(1.0f) }
         var latencyMs by remember { mutableStateOf(0f) }
+
+        // Reactive Selection Set: Fixes the checkbox tick visibility bug completely!
+        var selectedDeviceIds by remember { mutableStateOf(setOf<Int>()) }
+
+        // Auto-select first 2 devices if none selected
+        LaunchedEffect(connectedDevices) {
+            if (selectedDeviceIds.isEmpty() && connectedDevices.isNotEmpty()) {
+                selectedDeviceIds = connectedDevices.take(2).map { it.id }.toSet()
+            }
+        }
+
+        val selectedDevices = connectedDevices.filter { selectedDeviceIds.contains(it.id) }
 
         Scaffold(
             containerColor = Color(0xFF090D16),
@@ -251,7 +260,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Auracast LE Audio Card
+                // Auracast LE Audio Card (Interactive Action Button always visible!)
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF064E3B)),
@@ -263,33 +272,39 @@ class MainActivity : ComponentActivity() {
                                 Text("📡 Bluetooth 5.2+ LE Audio (Auracast)", fontWeight = FontWeight.Bold, color = Color(0xFF6EE7B7))
                                 Spacer(modifier = Modifier.weight(1f))
                                 if (isAuracastActive) {
-                                    Text("LIVE", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("BROADCASTING", color = Color(0xFF10B981), fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                 }
                             }
                             Text(
-                                if (isAuracastSupported)
-                                    "Your phone supports Auracast! Broadcast audio to unlimited nearby LE Audio earbuds."
-                                else
-                                    "Auracast broadcast is ready for phones with Android 13+ and Bluetooth 5.2+ LE Audio.",
+                                text = "Auracast broadcasts audio like an FM radio to any number of nearby Bluetooth 5.2+ LE Audio earbuds.",
                                 fontSize = 12.sp,
                                 color = Color(0xFFD1FAE5),
                                 modifier = Modifier.padding(vertical = 6.dp)
                             )
-                            if (isAuracastSupported) {
-                                Button(
-                                    onClick = {
-                                        if (isAuracastActive) {
-                                            auracastManager.stopAuracastBroadcast()
-                                        } else {
-                                            auracastManager.startAuracastBroadcast()
+                            Button(
+                                onClick = {
+                                    if (isAuracastActive) {
+                                        auracastManager.stopAuracastBroadcast()
+                                    } else {
+                                        val started = auracastManager.startAuracastBroadcast()
+                                        if (!started) {
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "Notice: Standard boAt & Redmi earbuds use Bluetooth Classic (A2DP), not LE Audio. Use Dual Audio below!",
+                                                Toast.LENGTH_LONG
+                                            ).show()
                                         }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (isAuracastActive) Color(0xFFEF4444) else Color(0xFF10B981)
-                                    )
-                                ) {
-                                    Text(if (isAuracastActive) "Stop Auracast" else "Start Auracast Broadcast")
-                                }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isAuracastActive) Color(0xFFEF4444) else Color(0xFF10B981)
+                                )
+                            ) {
+                                Text(
+                                    text = if (isAuracastActive) "⏹️ Stop Auracast Broadcast" else "▶️ Start Auracast Broadcast",
+                                    color = Color(0xFF090D16),
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -299,13 +314,13 @@ class MainActivity : ComponentActivity() {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            "Connected Earphones (${connectedDevices.count { it.isSelected }}/2 Selected)",
+                            "Select Earphones to Play (${selectedDeviceIds.size}/2 Checked)",
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFFF1F5F9)
                         )
                         Spacer(modifier = Modifier.weight(1f))
                         TextButton(onClick = { refreshDevices() }) {
-                            Text("Refresh List", color = Color(0xFF10B981))
+                            Text("Refresh", color = Color(0xFF10B981))
                         }
                     }
                 }
@@ -322,7 +337,7 @@ class MainActivity : ComponentActivity() {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "Querying Bluetooth audio devices...\nEnsure both pairs of earbuds are paired and connected in Android Bluetooth settings.",
+                                "No connected Bluetooth earbuds found.\nMake sure boAt and Redmi are connected in your phone's Bluetooth settings.",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 13.sp,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -331,76 +346,98 @@ class MainActivity : ComponentActivity() {
                     }
                 } else {
                     items(connectedDevices) { dev ->
+                        val isChecked = selectedDeviceIds.contains(dev.id)
+
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (dev.isSelected) Color(0xFF132F28) else Color(0xFF0F172A)
+                                containerColor = if (isChecked) Color(0xFF132F28) else Color(0xFF0F172A)
                             ),
-                            shape = RoundedCornerShape(12.dp),
+                            border = if (isChecked) BorderStroke(1.5.dp, Color(0xFF10B981)) else BorderStroke(1.dp, Color(0xFF334155)),
+                            shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val currentSelected = connectedDevices.count { it.isSelected }
-                                    if (!dev.isSelected && currentSelected >= 2) {
-                                        Toast.makeText(this@MainActivity, "Select up to 2 earbuds at once", Toast.LENGTH_SHORT).show()
+                                    if (isChecked) {
+                                        selectedDeviceIds = selectedDeviceIds - dev.id
                                     } else {
-                                        dev.isSelected = !dev.isSelected
-                                        connectedDevices = ArrayList(connectedDevices)
-                                        applyRouting()
+                                        if (selectedDeviceIds.size >= 2) {
+                                            Toast.makeText(this@MainActivity, "Select up to 2 earbuds at once", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            selectedDeviceIds = selectedDeviceIds + dev.id
+                                        }
                                     }
                                 }
                         ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = dev.isSelected,
-                                    onCheckedChange = { checked ->
-                                        val currentSelected = connectedDevices.count { it.isSelected }
-                                        if (checked && currentSelected >= 2) {
-                                            Toast.makeText(this@MainActivity, "Max 2 devices can be selected", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            dev.isSelected = checked
-                                            connectedDevices = ArrayList(connectedDevices)
-                                            applyRouting()
-                                        }
-                                    },
-                                    colors = CheckboxDefaults.colors(checkedColor = Color(0xFF10B981))
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(dev.name, fontWeight = FontWeight.Bold, color = Color(0xFFF8FAFC))
-                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                                        Text(
-                                            text = dev.profileType,
-                                            fontSize = 11.sp,
-                                            color = Color(0xFF94A3B8)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = if (dev.isSystemActive) "• ACTIVE SINK" else "• CONNECTED STANDBY",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (dev.isSystemActive) Color(0xFF10B981) else Color(0xFFF59E0B)
-                                        )
-                                    }
-                                }
-
-                                // Quick switch button if it's standby
-                                if (!dev.isSystemActive && dev.bluetoothDevice != null) {
-                                    TextButton(
-                                        onClick = {
-                                            val ok = deviceManager.requestSetActiveDevice(dev.bluetoothDevice)
-                                            if (ok) {
-                                                Toast.makeText(this@MainActivity, "Switched active output to ${dev.name}", Toast.LENGTH_SHORT).show()
-                                                refreshDevices()
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // High-contrast, custom styled Checkbox
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = { checked ->
+                                            if (checked) {
+                                                if (selectedDeviceIds.size >= 2) {
+                                                    Toast.makeText(this@MainActivity, "Select up to 2 earbuds at once", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    selectedDeviceIds = selectedDeviceIds + dev.id
+                                                }
                                             } else {
-                                                Toast.makeText(this@MainActivity, "Switching device...", Toast.LENGTH_SHORT).show()
-                                                refreshDevices()
+                                                selectedDeviceIds = selectedDeviceIds - dev.id
                                             }
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = Color(0xFF10B981),
+                                            checkmarkColor = Color(0xFF090D16), // Pitch-black tick on emerald green: 100% visible!
+                                            uncheckedColor = Color(0xFF64748B)
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = dev.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = Color(0xFFF8FAFC)
+                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = dev.profileType,
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF94A3B8)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = if (dev.isSystemActive) "• 🟢 ACTIVE SINK" else "• 🟡 CONNECTED STANDBY",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (dev.isSystemActive) Color(0xFF10B981) else Color(0xFFF59E0B)
+                                            )
                                         }
-                                    ) {
-                                        Text("Activate", fontSize = 11.sp, color = Color(0xFF06B6D4))
+                                    }
+
+                                    // Switch / Activate Button
+                                    if (dev.bluetoothDevice != null) {
+                                        Button(
+                                            onClick = {
+                                                deviceManager.requestSetActiveDevice(dev.bluetoothDevice)
+                                                Toast.makeText(this@MainActivity, "Switching audio to ${dev.name}...", Toast.LENGTH_SHORT).show()
+                                                refreshDevices()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (dev.isSystemActive) Color(0xFF1E293B) else Color(0xFF0284C7)
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Text(
+                                                text = if (dev.isSystemActive) "Active" else "Switch Here",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color.White
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -419,7 +456,10 @@ class MainActivity : ComponentActivity() {
                             Text("🎚️ Dual Volume & Sync Calibration", fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
 
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text("Earbuds 1 Volume: ${(vol1 * 100).toInt()}%", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                            val earbud1Name = selectedDevices.getOrNull(0)?.name ?: "Earbuds 1 (boAt)"
+                            val earbud2Name = selectedDevices.getOrNull(1)?.name ?: "Earbuds 2 (Redmi)"
+
+                            Text("$earbud1Name Volume: ${(vol1 * 100).toInt()}%", fontSize = 12.sp, color = Color(0xFF94A3B8))
                             Slider(
                                 value = vol1,
                                 onValueChange = {
@@ -430,7 +470,7 @@ class MainActivity : ComponentActivity() {
                             )
 
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Earbuds 2 Volume: ${(vol2 * 100).toInt()}%", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                            Text("$earbud2Name Volume: ${(vol2 * 100).toInt()}%", fontSize = 12.sp, color = Color(0xFF94A3B8))
                             Slider(
                                 value = vol2,
                                 onValueChange = {
@@ -468,7 +508,7 @@ class MainActivity : ComponentActivity() {
                             if (isSystemCaptureRunning) {
                                 stopSystemCapture()
                             } else {
-                                startSystemCapture()
+                                startSystemCapture(selectedDevices)
                             }
                         },
                         modifier = Modifier.fillMaxWidth().height(54.dp),
@@ -480,12 +520,13 @@ class MainActivity : ComponentActivity() {
                         Text(
                             text = if (isSystemCaptureRunning) "🛑 Stop Dual Audio Sharing" else "▶️ Start Dual Audio (System Sound)",
                             fontWeight = FontWeight.Bold,
+                            color = Color(0xFF090D16),
                             fontSize = 16.sp
                         )
                     }
                 }
 
-                // Developer Options Helper
+                // Notice card for Redmi 15
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
@@ -493,19 +534,13 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            Text("💡 Developer Options Setting", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE2E8F0))
+                            Text("💡 Redmi 15 & Bluetooth Classic Note", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFE2E8F0))
                             Text(
-                                "If the second earbud shows as 'Connected Standby' but no sound plays, open Developer Options > 'Maximum connected Bluetooth audio devices' and change it from 1 to 2 or 5.",
+                                text = "boAt and Redmi earbuds use Bluetooth Classic A2DP. If your Redmi 15 chip only streams to the active earbud, use the 'Switch Here' button to seamlessly swap between them, or use the Wi-Fi Hotspot Relay mode.",
                                 fontSize = 11.sp,
                                 color = Color(0xFF94A3B8),
                                 modifier = Modifier.padding(vertical = 4.dp)
                             )
-                            Button(
-                                onClick = { startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                            ) {
-                                Text("Open Developer Options", fontSize = 12.sp)
-                            }
                         }
                     }
                 }
