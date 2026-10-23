@@ -84,8 +84,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/heads/main')
         with:
-          tag_name: v1.0.1
-          name: "EarSync v1.0.1 (APK & Signed AAB)"
+          tag_name: v1.0.2
+          name: "EarSync v1.0.2 (APK & Signed AAB)"
           body: |
             ### 🎧 EarSync v1.0.0 Release
             
