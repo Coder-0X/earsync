@@ -1,0 +1,23 @@
+{
+  "name": "earsync",
+  "version": "1.0.0",
+  "description": "Zero-latency audio sharing engine for 1 phone and 2 pairs of earbuds (Android & Web)",
+  "scripts": {
+    "dev": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "server": "npm start --prefix server",
+    "start": "npm run build && npm start --prefix server"
+  },
+  "keywords": [
+    "bluetooth",
+    "dual-audio",
+    "auracast",
+    "le-audio",
+    "android",
+    "audio-sharing",
+    "webrtc",
+    "earbuds"
+  ],
+  "author": "Coder-0X",
+  "license": "MIT"
+}

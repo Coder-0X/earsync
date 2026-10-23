@@ -1,0 +1,16 @@
+{
+  "name": "earsync-server",
+  "version": "1.0.0",
+  "description": "Zero-latency audio sharing relay server for EarSync",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.0"
+  }
+}

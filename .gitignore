@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Production builds
+dist/
+build/
+.output/
+
+# Android Gradle
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+*.ap_
+*.apk
+*.aab
+
+# Logs and environment
+*.log
+.env
+.env.local
+.DS_Store
+Thumbs.db
