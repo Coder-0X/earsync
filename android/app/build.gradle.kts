@@ -1,7 +1,19 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Locate keystore.properties from local directory or parent signing folder
+val keystorePropertiesFile = rootProject.file("keystore.properties").takeIf { it.exists() }
+    ?: file("C:/Users/NITRO V 15/earsync-signing/keystore.properties").takeIf { it.exists() }
+
+val keystoreProperties = Properties()
+if (keystorePropertiesFile != null && keystorePropertiesFile.exists()) {
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
 }
 
 android {
@@ -21,15 +33,39 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val storeFilePath = keystoreProperties.getProperty("storeFile") ?: System.getenv("KEYSTORE_FILE")
+            if (!storeFilePath.isNullOrEmpty()) {
+                val resolvedStore = file(storeFilePath)
+                if (resolvedStore.exists()) {
+                    storeFile = resolvedStore
+                    storePassword = keystoreProperties.getProperty("storePassword") ?: System.getenv("KEYSTORE_PASSWORD")
+                    keyAlias = keystoreProperties.getProperty("keyAlias") ?: System.getenv("KEY_ALIAS")
+                    keyPassword = keystoreProperties.getProperty("keyPassword") ?: System.getenv("KEY_PASSWORD")
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            val releaseSigning = signingConfigs.findByName("release")
+            if (releaseSigning?.storeFile != null && releaseSigning.storeFile!!.exists()) {
+                signingConfig = releaseSigning
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+        debug {
+            applicationIdSuffix = ".debug"
+            isDebuggable = true
+        }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
